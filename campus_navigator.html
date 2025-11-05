@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRMIST Campus Portal (Full Feature)</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+
+        /* Custom CSS for the 3D/Video container */
+        #viewport-container {
+            position: relative;
+            width: 100%;
+            height: 60vh;
+            min-height: 400px;
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+            background-color: #111827; /* Dark background */
+        }
+        #three-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ar-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+        #ar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .tab-button.active {
+            border-color: #6366f1; /* Indigo-500 */
+            color: #6366f1;
+            background-color: #1f2937; /* Gray-800 */
+        }
+        .tab-content {
+            display: none;
+        }
+
+        /* Modal specific styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .modal-content {
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 1rem;
+        }
+    </style>
+    
+    <!-- Load Three.js library (MUST COME FIRST for 3D functionality) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+
+    <div class="max-w-6xl mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-green-400">SRMIST Campus Connect</h1>
+            <p class="text-gray-400 mt-1">Navigation, Transport & Student Life</p>
+        </header>
+
+        <!-- Navigation Bar (Tabs) -->
+        <nav class="mb-8">
+            <ul class="flex border-b border-gray-700 space-x-4 overflow-x-auto">
+                <li><button class="tab-button active px-6 py-3 font-semibold border-b-2 border-transparent transition duration-150 hover:text-indigo-400" data-tab="navigator">Indoor Navigator</button></li>
+                <li><button class="tab-button px-6 py-3 font-semibold border-b-2 border-transparent transition duration-150 hover:text-indigo-400" data-tab="bus-tracking">Bus Routes</button></li>
+                <li><button class="tab-button px-6 py-3 font-semibold border-b-2 border-transparent transition duration-150 hover:text-indigo-400" data-tab="clubs">Clubs Directory</button></li>
+                <li><button class="tab-button px-6 py-3 font-semibold border-b-2 border-transparent transition duration-150 hover:text-indigo-400" data-tab="lost-found">Lost & Found</button></li>
+            </ul>
+        </nav>
+
+        <!-- Tab Content Containers -->
+
+        <!-- 1. INDOOR NAVIGATOR TAB -->
+        <div id="navigator-tab" class="tab-content block">
+            <h2 class="text-2xl font-bold text-indigo-400 mb-4">Block III Indoor Navigation</h2>
+            <div class="bg-gray-800 p-5 rounded-xl shadow-lg mb-6 flex flex-col md:flex-row gap-4 items-center">
+                <div class="flex-grow w-full">
+                    <label for="destination-select" class="block text-sm font-medium text-gray-400 mb-1">Select Destination (Start: Ground Floor Entrance)</label>
+                    <select id="destination-select" class="w-full p-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                        <option value="entrance">Loading Destinations...</option>
+                    </select>
+                </div>
+                <button id="navigate-button" onclick="navigate()" class="w-full md:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-150 shadow-md transform hover:scale-105">
+                    Navigate
+                </button>
+                <button id="view-toggle-button" onclick="toggleView()" class="w-full md:w-auto px-6 py-2.5 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition duration-150 shadow-md transform hover:scale-105">
+                    Switch to AR View
+                </button>
+            </div>
+
+            <!-- 3D/AR Viewport -->
+            <div id="viewport-container">
+                <canvas id="three-canvas"></canvas>
+                <video id="ar-video" autoplay playsinline></video>
+                <div id="ar-overlay">
+                    <div id="direction-arrow" class="absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-500" style="opacity: 0; pointer-events: none;">
+                        <svg class="w-24 h-24 text-red-500 drop-shadow-lg animate-bounce" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-8a1 1 0 102 0V7a1 1 0 10-2 0v3zm2 4a1 1 0 10-2 0 1 1 0 002 0z" clip-rule="evenodd" />
+                        </svg>
+                        <span class="absolute text-2xl font-bold text-red-500 mt-28">DIRECTION: UPSTAIRS</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instructions/Output Panel -->
+            <div class="mt-6 bg-gray-800 p-5 rounded-xl shadow-lg">
+                <h2 class="text-xl font-bold text-indigo-400 mb-3">Navigation Instructions</h2>
+                <div id="instructions-output" class="text-gray-300 space-y-2">
+                    <p>Welcome! Select your destination and click "Navigate" to see the route in 3D.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. BUS TRACKING TAB (Live tracking removed) -->
+        <div id="bus-tracking-tab" class="tab-content">
+            <h2 class="text-2xl font-bold text-yellow-400 mb-4">Bus Route Finder</h2>
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg space-y-6">
+                <div class="flex-grow">
+                    <label for="bus-select" class="block text-sm font-medium text-gray-400 mb-1">Select Bus Number (1A - 32A)</label>
+                    <select id="bus-select" onchange="displayBusRoute()" class="w-full p-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-yellow-500 focus:border-yellow-500 transition duration-150">
+                        <!-- Options populated by JS -->
+                    </select>
+                </div>
+                
+                <div class="bg-gray-700 p-4 rounded-lg">
+                    <h3 class="text-xl font-semibold text-yellow-300 mb-2">Selected Bus Route:</h3>
+                    <div id="bus-route-output" class="text-gray-200 font-mono overflow-auto flex flex-wrap gap-2">
+                        Select a bus to view its route map starting from SRM Ramapuram.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. CLUBS DIRECTORY TAB -->
+        <div id="clubs-tab" class="tab-content">
+            <h2 class="text-2xl font-bold text-pink-400 mb-4">College Clubs Directory</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Club List (Column 1 & 2) -->
+                <div id="club-list" class="md:col-span-2 bg-gray-800 p-6 rounded-xl shadow-lg space-y-3">
+                    <h3 class="text-xl font-semibold text-pink-300 border-b border-gray-700 pb-2 mb-3">Technical & Professional Chapters</h3>
+                    <!-- Club buttons populated by JS -->
+                </div>
+
+                <!-- Club Details Panel (Column 3) -->
+                <div class="md:col-span-1 bg-gray-800 p-6 rounded-xl shadow-lg sticky top-8 h-fit">
+                    <h3 class="text-xl font-bold text-pink-300 mb-3 border-b border-gray-700 pb-2">Club Details</h3>
+                    <div id="club-details-output" class="text-gray-300 space-y-4">
+                        <p class="text-gray-400">Select a club from the list to view its description, recruitment status, and core committee openings.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. LOST & FOUND TAB -->
+        <div id="lost-found-tab" class="tab-content">
+            <h2 class="text-2xl font-bold text-green-400 mb-4">Lost & Found</h2>
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg space-y-4">
+                <p class="text-gray-300">Found an item? Thank you for helping the campus community. Use the button below to report the details.</p>
+                <button onclick="openReportModal()" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition duration-150 shadow-md transform hover:scale-105">
+                    REPORT FOUND ITEM
+                </button>
+                <div id="report-message" class="mt-4 p-3 bg-gray-700 rounded-lg text-green-400 hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOST & FOUND REPORT MODAL -->
+    <div id="report-modal" class="modal">
+        <div class="modal-content bg-gray-800 p-6 shadow-2xl">
+            <h3 class="text-2xl font-bold text-green-400 mb-4 border-b border-gray-700 pb-2">Report Found Item</h3>
+            <form id="lost-found-form" onsubmit="handleReportSubmit(event)">
+                <div class="space-y-4">
+                    <!-- Basic Details -->
+                    <div>
+                        <label for="item-name" class="block text-sm font-medium text-gray-400 mb-1">Name of Item Found (e.g., Red Wallet, ID Card, Rs 500 Cash)</label>
+                        <input type="text" id="item-name" name="itemName" oninput="toggleConditionalFields()" required class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-green-500 focus:border-green-500">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="date-found" class="block text-sm font-medium text-gray-400 mb-1">Date Item Was Found</label>
+                            <input type="date" id="date-found" name="dateFound" required class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-green-500 focus:border-green-500">
+                        </div>
+                        <div>
+                            <label for="time-found" class="block text-sm font-medium text-gray-400 mb-1">Approximate Time Found</label>
+                            <input type="time" id="time-found" name="timeFound" required class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-green-500 focus:border-green-500">
+                        </div>
+                    </div>
+
+                    <!-- Conditional Fields -->
+                    <div id="cash-field" class="hidden">
+                        <label for="cash-amount" class="block text-sm font-medium text-gray-400 mb-1">Cash Amount (in Rupees)</label>
+                        <input type="number" id="cash-amount" name="cashAmount" min="1" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-green-500 focus:border-green-500">
+                    </div>
+
+                    <div id="idcard-field" class="hidden">
+                        <label for="college-name" class="block text-sm font-medium text-gray-400 mb-1">College/Campus on ID Card</label>
+                        <select id="college-name" name="collegeName" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-200 focus:ring-green-500 focus:border-green-500">
+                            <option value="">-- Select Campus --</option>
+                            <option value="SRMIST">SRMIST (Ramapuram)</option>
+                            <option value="Eashwari">SRM Eashwari Engineering College</option>
+                            <option value="Arts">SRM Arts and Science College</option>
+                        </select>
+                    </div>
+                    
+                    <p class="text-sm text-yellow-400">Please provide your contact details (name/number) to the designated collection point when submitting the item.</p>
+
+                    <div id="submission-guidance" class="p-4 bg-yellow-900 rounded-lg text-yellow-300 hidden">
+                        <h4 class="font-bold">Submission Guidance:</h4>
+                        <p id="guidance-text"></p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex justify-end space-x-4 pt-4">
+                        <button type="button" onclick="closeReportModal()" class="px-5 py-2 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition duration-150">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition duration-150">
+                            Submit Report
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- START OF JAVASCRIPT LOGIC -->
+    <script>
+        // --- DATA DEFINITIONS ---
+
+        // 1. Club Data (unchanged)
+        const clubData = [
+            {
+                key: "IEI",
+                name: "IEI CHAPTER (Institution of Engineers India Club)",
+                recruitment: "Open (Deadline: 15th Nov)",
+                committeeRoles: "Available: Technical Lead (ECE), Event Coordinator (Any Dept)",
+                description: "The IEI Club (Institution of Engineers India Club) is a student chapter that promotes technical knowledge and professional development among engineering students. It organizes workshops, seminars, and competitions to enhance practical and innovative skills. The club connects students with industry experts and real-world engineering practices. It encourages teamwork, research, and creative problem-solving. Overall, IEI Club aims to prepare students for successful engineering careers through technical excellence and leadership. It is the core club of ECE department.",
+            },
+            {
+                key: "IETE",
+                name: "IETE CLUB (Institution of Electronics and Telecommunication Engineers Club)",
+                recruitment: "Closed (Will open Jan 2026)",
+                committeeRoles: "Available: None currently. All roles filled.",
+                description: "The IETE Club (Institution of Electronics and Telecommunication Engineers Club) is a professional body that promotes knowledge in electronics, communication, and IT. It conducts seminars, workshops, and technical events to enhance students’ practical and technical skills. The club bridges the gap between academic learning and industry needs. It encourages innovation, research, and teamwork among students. Overall, IETE Club aims to develop future-ready engineers with strong technical and professional skills.",
+            },
+            {
+                key: "DCDC",
+                name: "DCDC Club (Digital and Communication Development Club)",
+                recruitment: "Open (Seeking 5 freshers)",
+                committeeRoles: "Available: Documentation Specialist (Any Dept), Project Manager (CSE/IT)",
+                description: "The DCDC Club (Digital and Communication Development Club) focuses on enhancing students’ skills in digital electronics and communication systems. It organizes workshops, projects, and seminars related to modern communication technologies. The club helps students gain hands-on experience with circuits and digital tools. It promotes teamwork, innovation, and problem-solving in technical fields. Overall, DCDC Club aims to develop technically skilled and industry-ready communication engineers.",
+            },
+            {
+                key: "DIPP",
+                name: "DIPP Club (Design, Innovation, and Product Development Club)",
+                recruitment: "Open (Design Portfolio Required)",
+                committeeRoles: "Available: Design Thinker (Mechanical/Aero), Marketing Lead (BBA/Any Dept)",
+                description: "The DIPP Club (Design, Innovation, and Product Development Club) encourages creativity and innovation among students. It focuses on designing and developing new products and engineering solutions. The club organizes workshops, hackathons, and prototype-building sessions. It helps students turn innovative ideas into real-world applications. Overall, DIPP Club aims to nurture inventive minds and promote a culture of design thinking and innovation.",
+            },
+            {
+                key: "CODEKRAFTERS",
+                name: "CodeKrafters Club",
+                recruitment: "Open (Coding Contest Entry)",
+                committeeRoles: "Available: Web Dev Coordinator (CSE/IT), Competitive Programming Lead (Any Dept)",
+                description: "The CodeKrafters Club is dedicated to enhancing students’ coding and software development skills. It organizes coding contests, hackathons, and workshops on programming languages and technologies. The club promotes logical thinking, problem-solving, and teamwork among members. It helps students stay updated with the latest trends in software and app development. Overall, CodeKrafters Club aims to build a community of skilled and innovative programmers.",
+            }
+        ];
+
+        // 2. Bus Route Data (Generated - Unchanged)
+        const busRoutes = {};
+        const chennaiAreas = [
+            "Tambaram", "Velachery", "Madipakkam", "T. Nagar", "Anna Nagar", "Guindy", 
+            "Alandur", "Porur", "Mylapore", "Saidapet", "Avadi", "Pallikaranai"
+        ];
+        
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        for (let i = 1; i <= 32; i++) {
+            const busNum = `${i}A`;
+            let stops = [...chennaiAreas];
+            shuffleArray(stops);
+            
+            const numStops = Math.floor(Math.random() * 4) + 3; 
+            const selectedStops = stops.slice(0, numStops);
+
+            busRoutes[busNum] = `SRM RAMAPURAM -> ${selectedStops.join(' -> ')} -> ${selectedStops[selectedStops.length - 1]} Depot`;
+        }
+
+        // 3. 3D Map Data (unchanged)
+        const floorHeight = 10; 
+        const roomSpacing = 8;  
+        const startX = -20;     
+        const startZ = 20;      
+        
+        function generateFloorLayout(floorNum) {
+            const floorKey = floorNum.toString();
+            const yPos = (floorNum * floorHeight); 
+
+            let floorData = {};
+            let roomCounter = 101;
+            let restroomKey = '';
+            
+            if (floorNum % 2 !== 0) { 
+                restroomKey = `GR${floorKey}`;
+                floorData[restroomKey] = { floor: floorNum, pos: new THREE.Vector3(startX + 4 * roomSpacing + 4, yPos, startZ - roomSpacing / 2), color: 0xf472b6, label: `Girls Restroom (F${floorKey})` };
+            } else { 
+                restroomKey = `BR${floorKey}`;
+                floorData[restroomKey] = { floor: floorNum, pos: new THREE.Vector3(startX + 4 * roomSpacing + 4, yPos, startZ - roomSpacing / 2), color: 0x60a5fa, label: `Boys Restroom (F${floorKey})` };
+            }
+
+            for (let i = 0; i < 6; i++) {
+                const roomNum = (roomCounter + i).toString().slice(-2);
+                const roomKey = `${floorKey}${roomNum}`;
+                
+                let color = (floorNum % 2 !== 0 ? 0x3b82f6 : 0x10b981); 
+                let label = `Room ${floorKey}${roomNum}`;
+                
+                floorData[roomKey] = { 
+                    floor: floorNum, 
+                    pos: new THREE.Vector3(startX + i * roomSpacing, yPos, startZ), 
+                    color: color, 
+                    label: label 
+                };
+            }
+            
+            floorData[`stairs_${floorKey}`] = { floor: floorNum, pos: new THREE.Vector3(startX - roomSpacing / 2, yPos, startZ), label: `Stairs Access (F${floorKey})` };
+            return floorData;
+        }
+
+        const roomData = {
+            'entrance': { floor: 0, pos: new THREE.Vector3(0, 0, 0), label: "Entrance" }, 
+            'stairs_0': { floor: 0, pos: new THREE.Vector3(startX - roomSpacing / 2, 0, startZ), label: "Stairs Access (G)" },
+            
+            ...generateFloorLayout(1),
+            ...generateFloorLayout(2),
+            ...generateFloorLayout(3),
+            ...generateFloorLayout(4),
+            ...generateFloorLayout(5),
+            ...generateFloorLayout(6),
+            ...generateFloorLayout(7),
+        };
+
+        // --- TAB SWITCHING LOGIC (Updated to include lost-found) ---
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`${tabId}-tab`).style.display = 'block';
+
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+                if (button.getAttribute('data-tab') === tabId) {
+                    button.classList.add('active');
+                }
+            });
+
+            // Special handling for the Navigator tab
+            if (tabId === 'navigator' && typeof initThreeJS === 'function') {
+                if (!isARView) {
+                    animate(); 
+                }
+                onWindowResize();
+            } else {
+                // Stop AR camera if switching away
+                if (isARView && document.getElementById('ar-video').srcObject) {
+                    toggleView(false);
+                }
+            }
+        }
+
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                switchTab(button.getAttribute('data-tab'));
+            });
+        });
+
+
+        // --- CLUBS TAB LOGIC (Unchanged) ---
+
+        function renderClubs() {
+            const listContainer = document.getElementById('club-list');
+            listContainer.innerHTML = '<h3 class="text-xl font-semibold text-pink-300 border-b border-gray-700 pb-2 mb-3">Technical & Professional Chapters</h3>';
+
+            clubData.forEach(club => {
+                const button = document.createElement('button');
+                button.className = 'w-full text-left p-4 bg-gray-700 hover:bg-indigo-600 transition duration-150 rounded-lg shadow-md';
+                button.textContent = club.name;
+                button.onclick = () => displayClubDetails(club.key);
+                listContainer.appendChild(button);
+            });
+        }
+
+        function displayClubDetails(clubKey) {
+            const club = clubData.find(c => c.key === clubKey);
+            const output = document.getElementById('club-details-output');
+            
+            if (!club) return;
+
+            const recruitmentColor = club.recruitment.includes('Open') ? 'text-green-400' : 'text-red-400';
+            const rolesColor = club.committeeRoles.includes('None') ? 'text-gray-400' : 'text-yellow-400';
+
+            output.innerHTML = `
+                <h4 class="text-2xl font-bold text-pink-400">${club.name}</h4>
+                
+                <div class="space-y-2">
+                    <p class="text-gray-300">${club.description}</p>
+                </div>
+
+                <div class="mt-4 p-4 bg-gray-700 rounded-lg">
+                    <h5 class="text-lg font-semibold text-white">Recruitment Status:</h5>
+                    <p class="font-bold ${recruitmentColor}">${club.recruitment}</p>
+                </div>
+                
+                <div class="mt-4 p-4 bg-gray-700 rounded-lg">
+                    <h5 class="text-lg font-semibold text-white">Core Committee Availability:</h5>
+                    <p class="${rolesColor} whitespace-pre-wrap">${club.committeeRoles}</p>
+                </div>
+            `;
+        }
+
+        // --- BUS TRACKING LOGIC (Live tracking removed) ---
+
+        function renderBusSelector() {
+            const select = document.getElementById('bus-select');
+            select.innerHTML = '<option value="">-- Select a Bus --</option>';
+
+            Object.keys(busRoutes).forEach(busNum => {
+                const option = document.createElement('option');
+                option.value = busNum;
+                option.textContent = `Bus ${busNum}`;
+                select.appendChild(option);
+            });
+        }
+
+        function displayBusRoute() {
+            const select = document.getElementById('bus-select');
+            const busNum = select.value;
+            const output = document.getElementById('bus-route-output');
+
+            if (!busNum) {
+                output.textContent = 'Select a bus to view its route map starting from SRM Ramapuram.';
+                return;
+            }
+
+            const route = busRoutes[busNum];
+            
+            output.innerHTML = route.split(' -> ').map((stop, index) => {
+                const color = index === 0 ? 'text-green-400 font-bold' : (index === route.split(' -> ').length - 1 ? 'text-red-400 font-bold' : 'text-gray-200');
+                const icon = index === 0 ? '🏠' : (index === route.split(' -> ').length - 1 ? '🏁' : '➡️');
+                return `<span class="bg-gray-600 p-2 rounded-lg ${color} flex-shrink-0">${icon} ${stop}</span>`;
+            }).join(' <span class="text-gray-500">→</span> ');
+        }
+
+
+        // --- LOST & FOUND LOGIC ---
+
+        function openReportModal() {
+            document.getElementById('report-modal').style.display = 'flex';
+            document.getElementById('lost-found-form').reset();
+            document.getElementById('cash-field').classList.add('hidden');
+            document.getElementById('idcard-field').classList.add('hidden');
+            document.getElementById('submission-guidance').classList.add('hidden');
+        }
+
+        function closeReportModal() {
+            document.getElementById('report-modal').style.display = 'none';
+        }
+
+        function toggleConditionalFields() {
+            const itemName = document.getElementById('item-name').value.toLowerCase();
+            const cashField = document.getElementById('cash-field');
+            const idCardField = document.getElementById('idcard-field');
+            const guidanceBox = document.getElementById('submission-guidance');
+            
+            let showGuidance = true;
+            let guidanceText = '';
+
+            // 1. Conditional Fields Logic
+            if (itemName.includes('cash') || itemName.includes('rupees') || itemName.includes('money')) {
+                cashField.classList.remove('hidden');
+            } else {
+                cashField.classList.add('hidden');
+                document.getElementById('cash-amount').value = '';
+            }
+
+            if (itemName.includes('id card') || itemName.includes('wallet') || itemName.includes('phone') || itemName.includes('mobile')) {
+                idCardField.classList.remove('hidden');
+            } else {
+                idCardField.classList.add('hidden');
+                document.getElementById('college-name').value = '';
+            }
+
+            // 2. Submission Guidance Logic
+            if (itemName.includes('id card') || itemName.includes('mobile') || itemName.includes('phone') || itemName.includes('laptop') || itemName.includes('wallet') || itemName.includes('keys') || itemName.includes('cash')) {
+                guidanceText = "Please submit this item immediately to the **Admin Block/Security Office** of the respective campus (SRMIST or Eashwari). They handle high-value or essential items.";
+            } else if (itemName.includes('book') || itemName.includes('notebook') || itemName.includes('pen') || itemName.includes('tiffin') || itemName.includes('water bottle')) {
+                guidanceText = "If you found this item in a classroom, lecture hall, or lab, please hand it over to the **Class Incharge/Lab Assistant** for that specific room.";
+            } else {
+                guidanceText = "Please submit the item to the nearest **Department Office** or the **Admin Block** for record-keeping.";
+            }
+
+            document.getElementById('guidance-text').innerHTML = guidanceText;
+            guidanceBox.classList.remove('hidden');
+        }
+
+        function handleReportSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = new FormData(form);
+            const report = Object.fromEntries(data.entries());
+            
+            const itemName = report.itemName;
+            const dateFound = report.dateFound;
+            const timeFound = report.timeFound;
+            const guidance = document.getElementById('guidance-text').textContent;
+
+            let reportSummary = `
+                <p class="font-bold text-lg text-green-400">Report Submitted Successfully!</p>
+                <p><strong>Item:</strong> ${itemName}</p>
+                <p><strong>Found On:</strong> ${dateFound} at ${timeFound}</p>
+            `;
+
+            if (report.cashAmount && report.cashAmount > 0) {
+                reportSummary += `<p><strong>Cash Amount:</strong> ₹${report.cashAmount}</p>`;
+            }
+            if (report.collegeName) {
+                reportSummary += `<p><strong>Associated Campus:</strong> ${report.collegeName}</p>`;
+            }
+
+            reportSummary += `<div class="mt-3 p-3 bg-green-700 rounded-lg text-white"><p class="font-bold text-yellow-300">ACTION REQUIRED:</p><p>${guidance}</p></div>`;
+
+            // Display submission message on the main Lost & Found tab
+            const messageOutput = document.getElementById('report-message');
+            messageOutput.innerHTML = reportSummary;
+            messageOutput.classList.remove('hidden');
+
+            closeReportModal();
+        }
+
+        // --- INDOOR NAVIGATOR (3D) LOGIC (Unchanged) ---
+        let scene, camera, renderer, routePath, currentDestination, isARView = false;
+        let roomObjects = {};
+
+        function initThreeJS() {
+            const container = document.getElementById('viewport-container');
+            const canvas = document.getElementById('three-canvas');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(60, 80, 60); 
+            camera.lookAt(0, 35, 0);
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+
+            const ambientLight = new THREE.AmbientLight(0x404040, 3);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+            directionalLight.position.set(50, 50, 50);
+            scene.add(directionalLight);
+
+            buildBuilding();
+
+            routePath = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 5 }));
+            scene.add(routePath);
+
+            window.addEventListener('resize', onWindowResize, false);
+            onWindowResize();
+
+            animate();
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('viewport-container');
+            if (container.clientWidth > 0 && container.clientHeight > 0) {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            }
+        }
+
+        function buildBuilding() {
+            for (let i = 0; i <= 7; i++) {
+                let color, label;
+                if (i === 0) {
+                    color = 0x374151; 
+                    label = "Ground Floor";
+                } else if (i % 2 !== 0) {
+                    color = 0x4b5563; 
+                    label = `Floor ${i} (Girls Restroom)`;
+                } else {
+                    color = 0x6b7280; 
+                    label = `Floor ${i} (Boys Restroom)`;
+                }
+                createFloor(i, color, label);
+            }
+
+            for (const [key, data] of Object.entries(roomData)) {
+                if (data.floor > 0 || key === 'entrance' || key.startsWith('stairs_')) {
+                    const size = key.startsWith('stairs_') ? 3 : (key.startsWith('GR') || key.startsWith('BR') ? 3.5 : 4);
+                    
+                    if (key.startsWith('stairs_') && data.floor === 0) { 
+                         const geometry = new THREE.CylinderGeometry(1.5, 1.5, 7 * floorHeight + 5, 16); 
+                         const material = new THREE.MeshLambertMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0.7 });
+                         const stairs = new THREE.Mesh(geometry, material);
+                         stairs.position.copy(data.pos);
+                         stairs.position.y = (7 * floorHeight / 2); 
+                         scene.add(stairs);
+                         addTextLabel("Stairs", data.pos.clone().add(new THREE.Vector3(0, 7 * floorHeight + 2, 0)), 0.6);
+                    } else if (key !== 'entrance' && !key.startsWith('stairs_')) {
+                        const geometry = new THREE.BoxGeometry(size, size, size); 
+                        const material = new THREE.MeshLambertMaterial({ color: data.color });
+                        const object = new THREE.Mesh(geometry, material);
+                        object.position.copy(data.pos);
+                        object.name = key; 
+                        roomObjects[key] = object;
+                        scene.add(object);
+                        addTextLabel(data.label, data.pos.clone().add(new THREE.Vector3(0, size / 2 + 1, 0)), 0.3);
+                    }
+                }
+            }
+        }
+
+        function createFloor(floorLevel, color, label) {
+            const floorWidth = 70;
+            const floorDepth = 50;
+
+            const geometry = new THREE.PlaneGeometry(floorWidth, floorDepth);
+            const material = new THREE.MeshLambertMaterial({ color: color, transparent: true, opacity: 0.5 });
+            const floorMesh = new THREE.Mesh(geometry, material);
+            
+            floorMesh.position.y = (floorLevel * floorHeight) - 0.5; 
+            floorMesh.position.x = startX + (6 * roomSpacing - 4) / 2; 
+            floorMesh.position.z = startZ - 5; 
+
+            floorMesh.rotation.x = -Math.PI / 2;
+            scene.add(floorMesh);
+
+            addTextLabel(label, floorMesh.position.clone().add(new THREE.Vector3(-floorWidth/2 + 2, 0.25, floorDepth/2 - 2)), 0.6);
+        }
+
+        function addTextLabel(text, position, size) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            context.font = `${size * 40}px Inter, sans-serif`;
+            const textMetrics = context.measureText(text);
+            const textWidth = textMetrics.width;
+            const textHeight = size * 40 * 1.5; 
+            canvas.width = textWidth + 10;
+            canvas.height = textHeight + 10;
+            
+            context.font = `${size * 40}px Inter, sans-serif`;
+            context.fillStyle = 'white';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            const material = new THREE.SpriteMaterial({ map: texture, color: 0xffffff });
+            const sprite = new THREE.Sprite(material);
+
+            sprite.scale.set(size * 10 * (canvas.width / canvas.height), size * 10, 1);
+            sprite.position.copy(position);
+            scene.add(sprite);
+        }
+
+        function animate() {
+            if (isARView) return; 
+            requestAnimationFrame(animate);
+            
+            const time = Date.now() * 0.0001;
+            camera.position.x = Math.cos(time) * 80;
+            camera.position.z = Math.sin(time) * 80;
+            camera.position.y = Math.abs(Math.sin(time * 0.5) * 20) + 40; 
+            camera.lookAt(0, 35, 0); 
+
+            renderer.render(scene, camera);
+        }
+
+        function calculateRoute(destinationKey) {
+            const dest = roomData[destinationKey];
+            const route = [];
+            let instructions = ''; 
+            const floorNum = dest.floor;
+
+            route.push(roomData.entrance.pos.clone().add(new THREE.Vector3(0, 0.25, 0)));
+            instructions += `<li>Start at the Ground Floor Entrance.</li>`;
+
+            route.push(roomData.stairs_0.pos.clone());
+            instructions += `<li>Walk towards the main Stairs Access point.</li>`;
+
+            const stairsDestKey = `stairs_${floorNum}`;
+            const stairsPos = roomData[stairsDestKey].pos.clone().setY(floorNum * floorHeight);
+            route.push(stairsPos);
+            
+            const restroomType = floorNum % 2 !== 0 ? 'Girls Restroom' : 'Boys Restroom';
+            instructions += `<li>Ascend the stairs to <span class="font-semibold">Floor ${floorNum} (Area: ${restroomType})</span>.</li>`;
+
+            route.push(dest.pos);
+            instructions += `<li>On Floor ${floorNum}, proceed to <span class="font-semibold">${dest.label}</span>.</li>`;
+
+            return { route, instructions };
+        }
+
+        function drawRoute(points) {
+            scene.remove(routePath);
+            
+            Object.values(roomObjects).forEach(mesh => {
+                const roomKey = mesh.name;
+                if (roomData[roomKey]) {
+                    const originalColor = roomData[roomKey].color;
+                    mesh.material.color.setHex(originalColor);
+                }
+            });
+
+            const destinationObject = roomObjects[currentDestination];
+            if (destinationObject) {
+                destinationObject.material.color.setHex(0xff4500); 
+            }
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({
+                color: 0xffa500, 
+                linewidth: 8,
+                depthTest: false,
+            });
+            routePath = new THREE.Line(geometry, material);
+            scene.add(routePath);
+        }
+
+        function navigate() {
+            const select = document.getElementById('destination-select');
+            currentDestination = select.value;
+
+            if (!currentDestination || currentDestination === 'entrance') {
+                document.getElementById('instructions-output').innerHTML = `<p class="text-yellow-500">Please select a valid destination other than the entrance.</p>`;
+                return;
+            }
+
+            const { route, instructions } = calculateRoute(currentDestination);
+            drawRoute(route);
+
+            document.getElementById('instructions-output').innerHTML = `
+                <p class="font-bold text-lg text-green-400">Route Calculated to: ${roomData[currentDestination].label}</p>
+                <ol class="list-decimal pl-5">${instructions}</ol>
+                <p class="mt-3 text-sm text-yellow-300">The destination is highlighted in Orange on the 3D map.</p>
+            `;
+
+            if (isARView) {
+                toggleView(false);
+            }
+        }
+
+        function toggleView(forceARState) {
+            const toggleButton = document.getElementById('view-toggle-button');
+            const canvas = document.getElementById('three-canvas');
+            const video = document.getElementById('ar-video');
+            const overlay = document.getElementById('ar-overlay');
+            const arrow = document.getElementById('direction-arrow');
+            const arrowSpan = arrow.querySelector('span');
+
+            isARView = forceARState !== undefined ? forceARState : !isARView;
+
+            if (isARView) {
+                toggleButton.textContent = "Switch to 3D Map View";
+                canvas.style.display = 'none';
+                video.style.display = 'block';
+                overlay.style.display = 'block';
+
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                        .then(stream => {
+                            video.srcObject = stream;
+                            if (currentDestination && roomData[currentDestination]) {
+                                arrow.style.opacity = 1;
+                                const destFloor = roomData[currentDestination].floor;
+                                const directionText = destFloor > 0 ? `GO UP TO FLOOR ${destFloor}` : "GO FORWARD";
+                                arrowSpan.textContent = directionText;
+                            } else {
+                                arrow.style.opacity = 0.5;
+                                arrowSpan.textContent = "Please Navigate First...";
+                            }
+                            video.play();
+                        })
+                        .catch(err => {
+                            document.getElementById('instructions-output').innerHTML += `<p class="text-red-500 mt-2">Error accessing camera. AR conceptual view unavailable.</p>`;
+                            toggleView(false);
+                        });
+                } else {
+                    document.getElementById('instructions-output').innerHTML += `<p class="text-red-500 mt-2">Your browser does not support camera access.</p>`;
+                    toggleView(false);
+                }
+            } else {
+                toggleButton.textContent = "Switch to AR View";
+                canvas.style.display = 'block';
+                video.style.display = 'none';
+                overlay.style.display = 'none';
+                arrow.style.opacity = 0;
+
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                    video.srcObject = null;
+                }
+                animate();
+            }
+        }
+
+        function populateNavigatorDropdown() {
+            const select = document.getElementById('destination-select');
+            select.innerHTML = '';
+            
+            const entranceOpt = document.createElement('option');
+            entranceOpt.value = 'entrance';
+            entranceOpt.textContent = 'Ground Floor Entrance';
+            select.appendChild(entranceOpt);
+            
+            for (let f = 1; f <= 7; f++) {
+                const floorKey = f.toString();
+                
+                const stairsKey = `stairs_${floorKey}`;
+                const stairsOption = document.createElement('option');
+                stairsOption.value = stairsKey;
+                stairsOption.textContent = `${roomData[stairsKey].label}`;
+                select.appendChild(stairsOption);
+
+                for (let r = 1; r <= 6; r++) {
+                    const roomNum = (100 + r).toString().slice(-2);
+                    const key = `${floorKey}${roomNum}`;
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = `${roomData[key].label} - Floor ${f}`;
+                    select.appendChild(option);
+                }
+
+                const restKey = f % 2 !== 0 ? `GR${floorKey}` : `BR${floorKey}`;
+                const restOption = document.createElement('option');
+                restOption.value = restKey;
+                restOption.textContent = `${roomData[restKey].label}`;
+                select.appendChild(restOption);
+            }
+        }
+
+
+        // --- APPLICATION INITIALIZATION ---
+
+        window.onload = function() {
+            // 1. Initialize 3D Navigator
+            initThreeJS();
+            populateNavigatorDropdown();
+            
+            // Set initial destination and navigate on load
+            document.getElementById('destination-select').value = '403'; 
+            navigate();
+
+            // 2. Initialize Clubs Tab
+            renderClubs();
+
+            // 3. Initialize Bus Tracking Tab
+            renderBusSelector();
+            document.getElementById('bus-select').value = '1A'; 
+            displayBusRoute();
+            
+            // Start on the Navigator tab
+            switchTab('navigator');
+        };
+    </script>
+</body>
+</html>
